@@ -10,6 +10,8 @@ const encrypt = require('mongoose-encryption');
 const md5 = require('md5');
 const bcrypt = require('bcrypt');
 
+const saltRounds = 10;
+
 const app = express();
 
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -48,18 +50,22 @@ app.get('/login', function (req, res) {
 });
 
 app.post('/register', function (req, res) {
-    const email = req.body.username;
-    const password = req.body.password;
-
-    const user = new User({
-        email: email,
-        password: md5(password),
-    });
-    user.save((err) => {
+    bcrypt.hash(req.body.password, saltRounds, function (err, hash) {
         if (err) {
             console.log(err);
         } else {
-            res.render('secrets');
+            const user = new User({
+                email: req.body.username,
+                password: hash,
+            });
+
+            user.save((error) => {
+                if (error) {
+                    console.log(error);
+                } else {
+                    res.render('secrets');
+                }
+            });
         }
     });
 });
@@ -72,8 +78,21 @@ app.post('/login', function (req, res) {
     User.findOne({ email: email }, function (err, account) {
         if (err) {
             console.log(err);
-        } else if (account && account.password === hashedPassword) {
-            res.render('secrets');
+        } else if (account) {
+            bcrypt.compare(
+                req.body.password,
+                account.password,
+                function (error, result) {
+                    if (err) {
+                        console.log(error);
+                    } else if (result) {
+                        res.render('secrets');
+                    } else {
+                        console.log('Invalid Password, Please try again!');
+                        res.render('login');
+                    }
+                }
+            );
         } else {
             console.log('Not valid account, Please try again!');
             res.render('login');
