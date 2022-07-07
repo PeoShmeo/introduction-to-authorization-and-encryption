@@ -7,10 +7,12 @@ const bodyParser = require('body-parser');
 const ejs = require('ejs');
 const mongoose = require('mongoose');
 const encrypt = require('mongoose-encryption');
-const md5 = require('md5');
-const bcrypt = require('bcrypt');
+// const bcrypt = require('bcrypt');
+const session = require('express-session');
+const passport = require('passport');
+const passportLocalMongoose = require('passport-local-mongoose');
 
-const saltRounds = 10;
+// const saltRounds = 10;
 
 const app = express();
 
@@ -18,9 +20,18 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 app.set('view engine', 'ejs');
 
-// const encKey = process.env.KEYNAME;
-// const sigKey = process.env.KEYNAME;
-// const secret = process.env.SECRET_KEY;
+// ! Sets up the session with some configuration
+app.use(
+    session({
+        secret: 'Our little secret.',
+        resave: false,
+        saveUninitialized: false,
+    })
+);
+
+// ! Sets up passport, and uses passport to deal with the sessions
+app.use(passport.initialize());
+app.use(passport.session());
 
 mongoose.connect('mongodb://localhost:27017/userDB');
 
@@ -29,13 +40,16 @@ const userSchema = new mongoose.Schema({
     password: String,
 });
 
-// userSchema.plugin(encrypt, { encryptionKey: encKey, signingKey: sigKey });
-// userSchema.plugin(encrypt, {
-//     secret: secret,
-//     encryptedFields: ['password'],
-// });
+// ! Adds passport plugin to the user Schema. This hashes and salts passwords, and saves them into the mongoDB
+userSchema.plugin(passportLocalMongoose);
 
 const User = mongoose.model('User', userSchema);
+
+// ! Allows passport to create sessions (cookies containing the information) and crumble sessions (use the information within cookies and destroy cookie)
+passport.use(User.createStrategy());
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.get('/', function (req, res) {
     res.render('home');
@@ -49,56 +63,61 @@ app.get('/login', function (req, res) {
     res.render('login');
 });
 
+app.get('/logout', function (req, res) {
+    req.logout((err) => {
+        if (err) {
+            console.log(err);
+        }
+    });
+    res.redirect('/');
+});
+
+// ! If the user is authenticated, then it renders the secrets page, else, it redirects to login
+app.get('/secrets', function (req, res) {
+    if (req.isAuthenticated()) {
+        res.render('secrets');
+    } else {
+        res.redirect('/login');
+    }
+});
+
 app.post('/register', function (req, res) {
-    bcrypt.hash(req.body.password, saltRounds, function (err, hash) {
-        if (err) {
-            console.log(err);
-        } else {
-            const user = new User({
-                email: req.body.username,
-                password: hash,
-            });
-
-            user.save((error) => {
-                if (error) {
-                    console.log(error);
-                } else {
-                    res.render('secrets');
-                }
-            });
+    User.register(
+        { username: req.body.username },
+        req.body.password,
+        function (err, user) {
+            if (err) {
+                console.log(err);
+                res.redirect('/register');
+            } else {
+                passport.authenticate('local')(req, res, function () {
+                    res.redirect('/secrets');
+                });
+            }
         }
-    });
+    );
 });
 
-app.post('/login', function (req, res) {
-    const email = req.body.username;
-    const password = req.body.password;
-    const hashedPassword = md5(password);
-
-    User.findOne({ email: email }, function (err, account) {
-        if (err) {
-            console.log(err);
-        } else if (account) {
-            bcrypt.compare(
-                req.body.password,
-                account.password,
-                function (error, result) {
-                    if (err) {
-                        console.log(error);
-                    } else if (result) {
-                        res.render('secrets');
-                    } else {
-                        console.log('Invalid Password, Please try again!');
-                        res.render('login');
-                    }
-                }
-            );
-        } else {
-            console.log('Not valid account, Please try again!');
-            res.render('login');
-        }
-    });
+app.post("/login", passport.authenticate("local"), function(req, res){
+    res.redirect("/secrets");
 });
+
+// app.post('/login', function (req, res) {
+//     const user = new User({
+//         username: req.body.username,
+//         password: req.body.password,
+//     });
+
+//     req.login(user, function (err) {
+//         if (err) {
+//             console.log(err);
+//         } else {
+//             passport.authenticate('local')(req, res, function () {
+//                 res.redirect('/secrets');
+//             });
+//         }
+//     });
+// });
 
 app.listen(3000, () => {
     console.log('Successfully started server on PORT 3000!');
