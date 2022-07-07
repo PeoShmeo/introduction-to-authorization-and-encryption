@@ -8,6 +8,14 @@ body {
     text-align: center;
 }
 
+/* .btn-social {
+  margin: auto;
+} */
+
+.card-social {
+  text-align: center;
+}
+
 .secret-text {
   text-align: center;
   font-size: 2rem;

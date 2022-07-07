@@ -11,6 +11,9 @@ const encrypt = require('mongoose-encryption');
 const session = require('express-session');
 const passport = require('passport');
 const passportLocalMongoose = require('passport-local-mongoose');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+// ! const findOrCreate = require('mongoose-find-or-create');
+const findOrCreate = require('mongoose-findorcreate');
 
 // const saltRounds = 10;
 
@@ -38,22 +41,60 @@ mongoose.connect('mongodb://localhost:27017/userDB');
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
+    googleID: String,
 });
 
 // ! Adds passport plugin to the user Schema. This hashes and salts passwords, and saves them into the mongoDB
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 const User = mongoose.model('User', userSchema);
 
 // ! Allows passport to create sessions (cookies containing the information) and crumble sessions (use the information within cookies and destroy cookie)
 passport.use(User.createStrategy());
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function (user, done) {
+    done(null, user.id);
+});
+passport.deserializeUser(function (id, done) {
+    User.findById(id, function (err, user) {
+        done(err, user);
+    });
+});
+
+passport.use(
+    new GoogleStrategy(
+        {
+            clientID: process.env.CLIENT_ID,
+            clientSecret: process.env.CLIENT_SECRET,
+            callbackURL: 'http://localhost:3000/auth/google/secrets',
+            // ! userProfileURL: 'https://www.googleapis.com/oauth2/v3/userinfo',
+        },
+        function (accessToken, refreshToken, profile, cb) {
+            User.findOrCreate({ googleId: profile.id }, function (err, user) {
+                return cb(err, user);
+            });
+        }
+    )
+);
 
 app.get('/', function (req, res) {
     res.render('home');
 });
+
+app.get(
+    '/auth/google',
+    passport.authenticate('google', { scope: ['profile'] })
+);
+
+app.get(
+    '/auth/google/secrets',
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    function (req, res) {
+        // Successful authentication, redirect secrets.
+        res.redirect('/secrets');
+    }
+);
 
 app.get('/register', function (req, res) {
     res.render('register');
@@ -98,10 +139,11 @@ app.post('/register', function (req, res) {
     );
 });
 
-app.post("/login", passport.authenticate("local"), function(req, res){
-    res.redirect("/secrets");
+app.post('/login', passport.authenticate('local'), function (req, res) {
+    res.redirect('/secrets');
 });
 
+// ! Has a bug!
 // app.post('/login', function (req, res) {
 //     const user = new User({
 //         username: req.body.username,
