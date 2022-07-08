@@ -42,6 +42,7 @@ const userSchema = new mongoose.Schema({
     email: String,
     password: String,
     googleID: String,
+    secret: String,
 });
 
 // ! Adds passport plugin to the user Schema. This hashes and salts passwords, and saves them into the mongoDB
@@ -65,8 +66,8 @@ passport.deserializeUser(function (id, done) {
 passport.use(
     new GoogleStrategy(
         {
-            clientID: process.env.CLIENT_ID,
-            clientSecret: process.env.CLIENT_SECRET,
+            clientID: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
             callbackURL: 'http://localhost:3000/auth/google/secrets',
             // ! userProfileURL: 'https://www.googleapis.com/oauth2/v3/userinfo',
         },
@@ -115,11 +116,39 @@ app.get('/logout', function (req, res) {
 
 // ! If the user is authenticated, then it renders the secrets page, else, it redirects to login
 app.get('/secrets', function (req, res) {
+    User.find({ secret: { $ne: null } }, function (err, foundUsers) {
+        if (err) {
+            console.log(err);
+        } else {
+            console.log(foundUsers);
+            res.render('secrets', { usersWithSecrets: foundUsers });
+        }
+    });
+});
+
+app.get('/submit', function (req, res) {
     if (req.isAuthenticated()) {
-        res.render('secrets');
+        res.render('submit');
     } else {
         res.redirect('/login');
     }
+});
+
+app.post('/submit', function (req, res) {
+    const submittedSecret = req.body.secret;
+    // ! Passport saves the user in the request
+    User.findById(req.user.id, function (err, foundUser) {
+        if (err) {
+            console.log(err);
+        } else {
+            if (foundUser) {
+                foundUser.secret = submittedSecret;
+                foundUser.save(function () {
+                    res.redirect('/secrets');
+                });
+            }
+        }
+    });
 });
 
 app.post('/register', function (req, res) {
